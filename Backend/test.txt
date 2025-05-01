@@ -1,0 +1,207 @@
+package.json
+{
+  "name": "onetime-secret",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.0",
+    "body-parser": "^1.20.2",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongoose": "^7.3.4",
+    "uuid": "^9.0.0"
+  }
+}
+
+.env
+
+PORT=5000
+MONGO_URI=mongodb://localhost:27017/onetime_secret
+SECRET_KEY=mySuperSecretKey
+
+Server.js
+const express = require('express');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const bodyParser = require('body-parser');
+const secretRoutes = require('./routes/secretRoutes');
+
+dotenv.config();
+
+const app = express();
+app.use(bodyParser.json());
+
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch(err => console.log(err));
+
+app.use('/api/secret', secretRoutes);
+
+app.listen(process.env.PORT, () => {
+  console.log(`Server running on port ${process.env.PORT}`);
+});
+
+models/secret.js
+
+const mongoose = require('mongoose');
+
+const secretSchema = new mongoose.Schema({
+  id: { type: String, unique: true },
+  content: String,
+  passphrase: String,
+  expiresAt: Date,
+  viewed: { type: Boolean, default: false }
+});
+
+module.exports = mongoose.model('Secret', secretSchema);
+
+controllers/secretController.js
+
+const Secret = require('../models/Secret');
+const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+const bcrypt = require('bcrypt');
+const ENCRYPTION_KEY = process.env.SECRET_KEY;
+
+function encrypt(text) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY, 'utf-8'), iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+}
+
+function decrypt(text) {
+  const [ivHex, encryptedText] = text.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const encrypted = Buffer.from(encryptedText, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY, 'utf-8'), iv);
+  let decrypted = decipher.update(encrypted);
+  decrypted = Buffer.concat([decrypted, decipher.final()]);
+  return decrypted.toString();
+}
+
+exports.createSecret = async (req, res) => {
+  const { content, passphrase, expiresInDays } = req.body;
+  const id = uuidv4();
+  const encryptedContent = encrypt(content);
+  const hashPass = passphrase ? await bcrypt.hash(passphrase, 10) : null;
+  const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+
+  const secret = new Secret({ id, content: encryptedContent, passphrase: hashPass, expiresAt });
+  await secret.save();
+
+  res.json({ link: `http://localhost:5000/api/secret/${id}` });
+};
+
+exports.getSecret = async (req, res) => {
+  const { id } = req.params;
+  const { passphrase } = req.body;
+
+  const secret = await Secret.findOne({ id });
+
+  if (!secret) return res.status(404).json({ message: 'Not found' });
+  if (secret.viewed) return res.status(410).json({ message: 'Already viewed' });
+  if (new Date() > secret.expiresAt) {
+    await Secret.deleteOne({ id });
+    return res.status(410).json({ message: 'Expired' });
+  }
+
+  if (secret.passphrase) {
+    const match = await bcrypt.compare(passphrase, secret.passphrase);
+    if (!match) return res.status(403).json({ message: 'Invalid passphrase' });
+  }
+
+  const decryptedContent = decrypt(secret.content);
+  secret.viewed = true;
+  await secret.save();
+
+  res.json({ secret: decryptedContent });
+};
+
+
+routes/secretRoutes.js
+
+const express = require('express');
+
+const router = express.Router();
+
+const { createSecret, getSecret } = require('../controllers/secretController');
+
+
+
+router.post('/', createSecret);
+
+router.post('/:id', getSecret); // Use POST to allow passphrase
+
+
+
+module.exports = router;
+
+How to Run:
+
+
+
+1. Create a .env file.
+
+
+
+
+
+2. npm install
+
+
+
+
+
+3. Start MongoDB (mongod)
+
+
+
+
+
+4. npm start
+
+
+
+
+
+5. Use Postman to:
+
+
+
+POST /api/secret with body:
+
+
+
+{
+
+  "content": "my secret",
+
+  "passphrase": "1234",
+
+  "expiresInDays": 7
+
+}
+
+
+
+POST /api/secret/:id with body:
+
+
+
+{
+
+  "passphrase": "1234"
+
+}
+
+
+
+
+
+
