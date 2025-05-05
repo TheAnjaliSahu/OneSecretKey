@@ -1,5 +1,5 @@
 const Secret = require('../models/Secret');
-// const OneTimeSecret = require('../models/OneTimeSecret');
+ const OneTimeSecret = require('../models/OneTimeSecret');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
@@ -165,3 +165,35 @@ exports.signin = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+
+// exports.signin = async (req, res) => {
+//   const { email, password } = req.body;
+//   try {
+//     if (!email || !password) {
+//       return res.status(400).json({ message: "Email and password are required" });
+//     }
+
+//     const user = await OneTimeSecret.findOne({ email });
+//     if (!user) {
+//       console.log("User not found with email:", email);
+//       return res.status(401).json({ message: "Invalid email or password" });
+//     }
+
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       console.log("Invalid password for user:", email);
+//       return res.status(401).json({ message: "Invalid email or password" });
+//     }
+
+//     const token = await user.generateToken();
+//     res.status(200).json({
+//       message: "Signin successful",
+//       token,
+//       userId: user._id.toString(),
+//     });
+//   } catch (error) {
+//     console.error("Login error:", error);
+//     res.status(500).json({ message: error.message }); // helpful during dev
+//   }
+// };
